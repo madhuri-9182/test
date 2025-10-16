@@ -104,13 +104,14 @@ jobs:
             fi
             
             echo "Checking for virtual environment..."
-            if [ ! -d "venv" ]; then
-              echo "Creating virtual environment..."
-              python3 -m venv venv
-              echo "Virtual environment created successfully"
-            else
-              echo "Virtual environment already exists"
-            fi
+           if [ ! -f "venv/bin/activate" ]; then
+           echo "Virtual environment missing or broken. Recreating..."
+           rm -rf venv
+           python3 -m venv venv
+           echo "✅ Virtual environment created successfully"
+           else
+           echo "✅ Virtual environment already exists and valid"
+           fi
             
             echo "Contents of /opt/app:"
             ls -la /opt/app/
