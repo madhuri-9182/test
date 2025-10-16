@@ -54,42 +54,86 @@ jobs:
           set -e
           sudo apt-get update -y
           apt-get install -y python3 python3-pip python3-venv git
-          git clone $REPO_URL . || (git pull)
-          echo '✅ Base packages and app cloned successfully.'
-          cd test
+          # Clone repository to /opt/app
+          mkdir -p /opt/app
+          cd /opt/app
+          git clone '"$REPO_URL"' .
+      
+          echo "✅ Repository cloned successfully"
+          '
+      
+          echo "✅ VM $VM_NAME created successfully"
+          echo "⏳ Waiting 60 seconds for VM initialization..."
+          sleep 60
+          else
+          echo "✅ VM $VM_NAME already exists. Skipping creation."
+          fi
+
+      - name: Deploy application to VM
+        run: |
+          echo "🚀 Deploying application to VM: $VM_NAME"
+          gcloud compute ssh "$VM_NAME" \
+          --zone="$ZONE" \
+          --project="$PROJECT_ID" \
+          --command='
+          set -e
+          cd /opt/app
+
+          # Pull latest code
+          echo "📥 Pulling latest code..."
+          git pull origin main || git pull
+    
+          # Setup Python virtual environment
+          if [ ! -d "venv" ]; then
+          echo "🐍 Creating virtual environment..."
           python3 -m venv venv
+          fi
+          
+          # Activate venv and install dependencies
           source venv/bin/activate
+          echo "📦 Installing dependencies..."
+          pip install --upgrade pip
           pip install -r requirements.txt
-          "
+    
+          echo "✅ Application deployed successfully"
+          '
+    
 
       - name: Configure Gunicorn service on VM
         run: |
           echo "⚙️ Configuring Gunicorn systemd service..."
-          gcloud compute ssh "$VM_NAME" --zone "$ZONE" --project "$PROJECT_ID" --command "
-          sudo bash -c '
-          cat > /etc/systemd/system/gunicorn.service <<EOF
+          gcloud compute ssh "$VM_NAME" \
+          --zone="$ZONE" \
+          --project="$PROJECT_ID" \
+          --command='
+          sudo bash -c "cat > /etc/systemd/system/gunicorn.service <<EOF
           [Unit]
           Description=Gunicorn Service for Test App
           After=network.target
 
           [Service]
           User=root
-          WorkingDirectory=/home/madhurisomannagari75/test
-          ExecStart=/home/madhurisomannagari75/test/venv/bin/gunicorn --bind 0.0.0.0:8000 app:app
+          WorkingDirectory=/opt/app
+          ExecStart=/opt/app/venv/bin/gunicorn --bind 0.0.0.0:8000 app:app
           Restart=always
 
           [Install]
           WantedBy=multi-user.target
-          EOF
+          EOF"
 
-          cd /opt/app
-          pip3 install -r requirements.txt || true
-          systemctl daemon-reload
-          systemctl enable gunicorn.service
-          systemctl start gunicorn.service
-          systemctl status gunicorn.service --no-pager -l
-          echo \"✅ Gunicorn service started successfully.\"
-          '"
+          # Reload systemd and restart service
+          sudo systemctl daemon-reload
+          sudo systemctl enable gunicorn.service
+          sudo systemctl restart gunicorn.service
+    
+          # Wait a moment for service to start
+          sleep 3
+    
+          # Check service status
+          sudo systemctl status gunicorn.service --no-pager -l || true
+    
+          echo "✅ Gunicorn service configured and started"
+          '
 
       - name: Confirm VM is running
         run: |
