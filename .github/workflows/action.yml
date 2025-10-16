@@ -2,13 +2,13 @@ name: 'GCP VM Deploy'
 
 on:
   push:
-    branches: [main]
+    branches: [feature]
   workflow_dispatch:
 
 env:
   PROJECT_ID: dynamic-now-438707-c1
   ZONE: asia-south1-b
-  VM_NAME: hello-test
+  VM_NAME: hello-test-feature
   MACHINE_TYPE: e2-micro
   IMAGE_FAMILY: ubuntu-2404-lts-amd64
   IMAGE_PROJECT: ubuntu-os-cloud
