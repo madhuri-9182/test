@@ -36,10 +36,13 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Create VM instance
+      - name: Check if VM exists and Create VM instance if needed
         run: |
-          echo "🚀 Creating VM instance: $VM_NAME"
-          gcloud compute instances create "$VM_NAME" \
+          # Check if VM exists
+          if ! gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --quiet >/dev/null 2>&1; then
+            echo "⚠️ VM $VM_NAME does not exist. Creating it..."
+            
+            gcloud compute instances create "$VM_NAME" \
             --project="$PROJECT_ID" \
             --zone="$ZONE" \
             --machine-type="$MACHINE_TYPE" \
@@ -49,17 +52,15 @@ jobs:
             --boot-disk-size=10GB \
             --metadata=startup-script="#!/bin/bash
           set -e
-          apt-get update -y
+          sudo apt-get update -y
           apt-get install -y python3 python3-pip python3-venv git
-          mkdir -p /opt/app
-          cd /opt/app
           git clone $REPO_URL . || (git pull)
-          echo '✅ Base packages and app cloned successfully.'"
-
-      - name: Wait for VM to boot
-        run: |
-          echo "⏳ Waiting 60 seconds for VM initialization..."
-          sleep 60
+          echo '✅ Base packages and app cloned successfully.'
+          cd test
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+          "
 
       - name: Configure Gunicorn service on VM
         run: |
@@ -73,8 +74,8 @@ jobs:
 
           [Service]
           User=root
-          WorkingDirectory=/opt/app
-          ExecStart=/usr/bin/gunicorn --bind 0.0.0.0:8000 app:app
+          WorkingDirectory=/home/madhurisomannagari75/test
+          ExecStart=/home/madhurisomannagari75/test/venv/bin/gunicorn --bind 0.0.0.0:8000 app:app
           Restart=always
 
           [Install]
