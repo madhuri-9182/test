@@ -50,7 +50,7 @@ jobs:
             --image-project="$IMAGE_PROJECT" \
             --tags=http-server,https-server \
             --boot-disk-size=10GB \
-            --metadata=startup-script="#!/bin/bash
+            --metadata=startup-script='#!/bin/bash
           set -e
           sudo apt-get update -y
           apt-get install -y python3 python3-pip python3-venv git
@@ -59,11 +59,11 @@ jobs:
           cd /opt/app
           git clone '"$REPO_URL"' .
       
-          echo "✅ Repository cloned successfully"
+          echo "Repository cloned successfully"
           '
       
-          echo "✅ VM $VM_NAME created successfully"
-          echo "⏳ Waiting 60 seconds for VM initialization..."
+          echo "VM $VM_NAME created successfully"
+          echo "Waiting 60 seconds for VM initialization..."
           sleep 60
           else
           echo "✅ VM $VM_NAME already exists. Skipping creation."
@@ -71,7 +71,7 @@ jobs:
 
       - name: Deploy application to VM
         run: |
-          echo "🚀 Deploying application to VM: $VM_NAME"
+          echo "Deploying application to VM: $VM_NAME"
           gcloud compute ssh "$VM_NAME" \
           --zone="$ZONE" \
           --project="$PROJECT_ID" \
@@ -80,12 +80,12 @@ jobs:
           cd /opt/app
 
           # Pull latest code
-          echo "📥 Pulling latest code..."
+          echo "Pulling latest code..."
           git pull origin main || git pull
     
           # Setup Python virtual environment
           if [ ! -d "venv" ]; then
-          echo "🐍 Creating virtual environment..."
+          echo "Creating virtual environment..."
           python3 -m venv venv
           fi
           
