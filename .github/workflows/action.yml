@@ -2,13 +2,13 @@ name: 'GCP VM Deploy'
 
 on:
   push:
-    branches: [feature]
+    branches: [main]
   workflow_dispatch:
 
 env:
   PROJECT_ID: dynamic-now-438707-c1
   ZONE: asia-south1-b
-  VM_NAME: hello-test-feature
+  VM_NAME: hello-test
   MACHINE_TYPE: e2-micro
   IMAGE_FAMILY: ubuntu-2404-lts-amd64
   IMAGE_PROJECT: ubuntu-os-cloud
@@ -88,7 +88,13 @@ jobs:
             --project="$PROJECT_ID" \
             --command='
             set -e
+            
+            echo "Current directory: $(pwd)"
+            echo "Checking /opt/app..."
+            ls -la /opt/app/ || echo "Directory does not exist or is empty"
+            
             cd /opt/app
+            
             if [ ! -d ".git" ]; then
               echo "Cloning repository..."
               git clone '"$REPO_URL"' .
@@ -96,14 +102,26 @@ jobs:
               echo "Pulling latest code..."
               git pull origin main || git pull
             fi
+            
+            echo "Checking for virtual environment..."
             if [ ! -d "venv" ]; then
               echo "Creating virtual environment..."
               python3 -m venv venv
+              echo "Virtual environment created successfully"
+            else
+              echo "Virtual environment already exists"
             fi
-            source venv/bin/activate
+            
+            echo "Contents of /opt/app:"
+            ls -la /opt/app/
+            
+            echo "Activating virtual environment..."
+            source /opt/app/venv/bin/activate
+            
             echo "Installing dependencies..."
             pip install --upgrade pip
             pip install -r requirements.txt
+            
             echo "Application deployed successfully"
             '
 
@@ -115,21 +133,22 @@ jobs:
             --project="$PROJECT_ID" \
             --command='
             sudo bash -c "cat > /etc/systemd/system/gunicorn.service <<EOF
-            [Unit]
-            Description=Gunicorn Service for Test App
-            After=network.target
-            [Service]
-            User=$USER
-            Group=$USER
-            WorkingDirectory=/opt/app
-            Environment=\"PATH=/opt/app/venv/bin\"
-            ExecStart=/opt/app/venv/bin/gunicorn --bind 0.0.0.0:8000 --workers 2 app:app
-            Restart=always
-            RestartSec=3
+[Unit]
+Description=Gunicorn Service for Test App
+After=network.target
 
-            [Install]
-            WantedBy=multi-user.target
-            EOF"
+[Service]
+User=$USER
+Group=$USER
+WorkingDirectory=/opt/app
+Environment=\"PATH=/opt/app/venv/bin\"
+ExecStart=/opt/app/venv/bin/gunicorn --bind 0.0.0.0:8000 --workers 2 app:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF"
             sudo systemctl daemon-reload
             sudo systemctl enable gunicorn.service
             sudo systemctl restart gunicorn.service
@@ -187,4 +206,3 @@ jobs:
             --project="$PROJECT_ID" \
             --format="value(status)")
           echo "VM Status: $STATUS"
-
