@@ -3,7 +3,7 @@ name: 'GCP VM Deploy'
 on:
   push:
     branches: [main]
-  workflow_dispatch:  # allows manual trigger from GitHub Actions UI
+  workflow_dispatch:
 
 env:
   PROJECT_ID: dynamic-now-438707-c1
@@ -12,7 +12,7 @@ env:
   MACHINE_TYPE: e2-micro
   IMAGE_FAMILY: ubuntu-2404-lts-amd64
   IMAGE_PROJECT: ubuntu-os-cloud
-  REPO_URL: https://github.com/madhuri-9182/Hello-test.git  # replace with your repo URL
+  REPO_URL: https://github.com/madhuri-9182/Hello-test.git
 
 jobs:
   gce-image-deploy:
@@ -49,13 +49,14 @@ jobs:
             --image-project="$IMAGE_PROJECT" \
             --tags=http-server,https-server \
             --boot-disk-size=10GB \
-            --metadata=startup-script='#!/bin/bash
-              set -e
-              apt-get update -y
-              apt-get install -y python3 python3-pip python3-venv git
-              git clone "$REPO_URL"
-              echo "✅ Base packages installed successfully."
-            '
+            --metadata=startup-script="#!/bin/bash
+set -e
+apt-get update -y
+apt-get install -y python3 python3-pip python3-venv git
+mkdir -p /opt/app
+cd /opt/app
+git clone $REPO_URL . || (git pull)
+echo '✅ Base packages and app cloned successfully.'"
 
       - name: Wait for VM to boot
         run: |
@@ -65,11 +66,9 @@ jobs:
       - name: Configure Gunicorn service on VM
         run: |
           echo "⚙️ Configuring Gunicorn systemd service..."
-          gcloud compute ssh "$VM_NAME" \
-            --zone "$ZONE" \
-            --project "$PROJECT_ID" \
-            --command "sudo bash -c '
-              cat > /etc/systemd/system/gunicorn.service <<EOF
+          gcloud compute ssh "$VM_NAME" --zone "$ZONE" --project "$PROJECT_ID" --command "
+sudo bash -c '
+cat > /etc/systemd/system/gunicorn.service <<EOF
 [Unit]
 Description=Gunicorn Service for Test App
 After=network.target
@@ -84,14 +83,14 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-              cd /opt/app
-              pip3 install -r requirements.txt || true
-              systemctl daemon-reload
-              systemctl enable gunicorn.service
-              systemctl start gunicorn.service
-              systemctl status gunicorn.service --no-pager -l
-              echo "✅ Gunicorn service started successfully."
-            '"
+cd /opt/app
+pip3 install -r requirements.txt || true
+systemctl daemon-reload
+systemctl enable gunicorn.service
+systemctl start gunicorn.service
+systemctl status gunicorn.service --no-pager -l
+echo '✅ Gunicorn service started successfully.'
+'"
 
       - name: Confirm VM is running
         run: |
