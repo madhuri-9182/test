@@ -1,73 +1,53 @@
-name: Manual Service Control
+name: Manual Service Restart
 
 on:
   workflow_dispatch:
     inputs:
-      action:
-        description: 'Choose the service action to perform'
+      service:
+        description: 'Service to manage'
         required: true
+        default: restart
         type: choice
         options:
           - start
           - stop
           - restart
-        default: restart
       reason:
-        description: 'Reason for manual action'
+        description: 'Reason for action'
         required: true
-        default: 'Triggered manually via GitHub Actions'
-
-env:
-  PROJECT_ID: dynamic-now-438707-c1
-  ZONE: asia-south1-b
-  VM_NAME: hello-test
+        default: 'Manual trigger via GitHub Actions'
 
 jobs:
-  service-control:
+  manage-gunicorn:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          token_format: 'access_token'
-          workload_identity_provider: 'projects/568722140219/locations/global/workloadIdentityPools/github-pool/providers/github'
-          service_account: 'github-actions@dynamic-now-438707-c1.iam.gserviceaccount.com'
-
-      - name: Set up gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ env.PROJECT_ID }}
-
-      - name: Perform Service Action on VM
+      - name: Manage Gunicorn Service
         run: |
-          ACTION="${{ github.event.inputs.action }}"
-          REASON="${{ github.event.inputs.reason }}"
+          echo "🔧 Action: ${{ github.event.inputs.service }} - Reason: ${{ github.event.inputs.reason }}"
 
-          echo "=========================================="
-          echo "🔧 Performing '$ACTION' on Gunicorn service"
-          echo "📋 Reason: $REASON"
-          echo "💻 VM: $VM_NAME"
-          echo "=========================================="
+          gcloud compute ssh "$VM_NAME" --zone "$ZONE" --project "$PROJECT_ID" --command="
+            case '${{ github.event.inputs.service }}' in
+              start)
+                sudo systemctl start gunicorn
+                ;;
+              stop)
+                sudo systemctl stop gunicorn
+                ;;
+              restart)
+                sudo systemctl restart gunicorn
+                ;;
+              *)
+                echo '❌ Unknown action: ${{ github.event.inputs.service }}'
+                exit 1
+                ;;
+            esac
 
-          gcloud compute ssh "$VM_NAME" \
-            --zone="$ZONE" \
-            --project="$PROJECT_ID" \
-            --command="sudo systemctl \$ACTION gunicorn.service && sleep 3 && sudo systemctl status gunicorn.service --no-pager -l"
+            sleep 3
+            if sudo systemctl is-active --quiet gunicorn; then
+              echo '✅ Gunicorn is running'
+            else
+              echo '❌ Gunicorn is not running'
+            fi
 
-          echo "✅ Gunicorn service '$ACTION' completed successfully."
-
-      - name: Verify Gunicorn status
-        run: |
-          echo "🔍 Checking Gunicorn service status..."
-          gcloud compute ssh "$VM_NAME" \
-            --zone="$ZONE" \
-            --project="$PROJECT_ID" \
-            --command="sudo systemctl is-active gunicorn.service && sudo systemctl status gunicorn.service --no-pager -l"
+            sudo systemctl status gunicorn --no-pager -l
+          "
