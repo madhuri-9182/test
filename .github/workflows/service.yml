@@ -1,0 +1,73 @@
+name: Manual Service Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Choose the service action to perform'
+        required: true
+        type: choice
+        options:
+          - start
+          - stop
+          - restart
+        default: restart
+      reason:
+        description: 'Reason for manual action'
+        required: true
+        default: 'Triggered manually via GitHub Actions'
+
+env:
+  PROJECT_ID: dynamic-now-438707-c1
+  ZONE: asia-south1-b
+  VM_NAME: hello-test-feature
+
+jobs:
+  service-control:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: 'projects/568722140219/locations/global/workloadIdentityPools/github-pool/providers/github'
+          service_account: 'github-actions@dynamic-now-438707-c1.iam.gserviceaccount.com'
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Perform Service Action on VM
+        run: |
+          ACTION="${{ github.event.inputs.action }}"
+          REASON="${{ github.event.inputs.reason }}"
+
+          echo "=========================================="
+          echo "🔧 Performing '$ACTION' on Gunicorn service"
+          echo "📋 Reason: $REASON"
+          echo "💻 VM: $VM_NAME"
+          echo "=========================================="
+
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --command="sudo systemctl \$ACTION gunicorn && sleep 3 && sudo systemctl status gunicorn --no-pager -l"
+
+          echo "✅ Gunicorn service '$ACTION' completed successfully."
+
+      - name: Verify Gunicorn status
+        run: |
+          echo "🔍 Checking Gunicorn service status..."
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --command="sudo systemctl is-active gunicorn && sudo systemctl status gunicorn --no-pager -l"
