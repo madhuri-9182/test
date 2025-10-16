@@ -78,10 +78,6 @@ jobs:
           --command='
           set -e
           cd /opt/app
-
-          # Pull latest code
-          echo "Pulling latest code..."
-          git pull origin main || git pull
     
           # Setup Python virtual environment
           if [ ! -d "venv" ]; then
