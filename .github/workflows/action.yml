@@ -11,7 +11,7 @@ env:
   MACHINE_TYPE: e2-micro
   IMAGE_FAMILY: ubuntu-2404-lts-amd64
   IMAGE_PROJECT: ubuntu-os-cloud
-  REPO_URL: https://github.com/madhuri-9182/Hello-test.git
+  REPO_URL: https://github.com/madhuri-9182/test.git
 
 jobs:
   gce-image-deploy:
