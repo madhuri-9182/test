@@ -17,6 +17,11 @@ on:
         required: true
         default: 'Manual trigger via GitHub Actions'
 
+env:
+  PROJECT_ID: dynamic-now-438707-c1
+  ZONE: asia-south1-b
+  VM_NAME: hello-test-feature  # replace with your VM name
+
 jobs:
   manage-gunicorn:
     runs-on: ubuntu-latest
