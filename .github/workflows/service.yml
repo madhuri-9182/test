@@ -20,7 +20,7 @@ on:
 env:
   PROJECT_ID: dynamic-now-438707-c1
   ZONE: asia-south1-b
-  VM_NAME: hello-test-feature
+  VM_NAME: hello-test
 
 jobs:
   service-control:
