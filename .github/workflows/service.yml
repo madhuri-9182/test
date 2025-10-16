@@ -25,7 +25,21 @@ env:
 jobs:
   manage-gunicorn:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: 'projects/568722140219/locations/global/workloadIdentityPools/github-pool/providers/github'
+          service_account: 'github-actions@dynamic-now-438707-c1.iam.gserviceaccount.com'
+
       - name: Manage Gunicorn Service
         run: |
           echo "🔧 Action: ${{ github.event.inputs.service }} - Reason: ${{ github.event.inputs.reason }}"
