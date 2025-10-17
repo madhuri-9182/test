@@ -1,9 +1,8 @@
-name: GCP VM Deploy
+name: 'GCP VM Deploy'
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -30,19 +29,20 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          token_format: access_token
-          workload_identity_provider: projects/568722140219/locations/global/workloadIdentityPools/github-pool/providers/github
-          service_account: github-actions@dynamic-now-438707-c1.iam.gserviceaccount.com
+          token_format: 'access_token'
+          workload_identity_provider: 'projects/568722140219/locations/global/workloadIdentityPools/github-pool/providers/github'
+          service_account: 'github-actions@dynamic-now-438707-c1.iam.gserviceaccount.com'
 
       - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Check if VM exists and create if needed
+      - name: Check if VM exists and Create VM instance if needed
         run: |
           if ! gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --quiet >/dev/null 2>&1; then
-            echo "VM does not exist. Creating..."
+            echo "VM $VM_NAME does not exist. Creating it..."
+            
             gcloud compute instances create "$VM_NAME" \
               --project="$PROJECT_ID" \
               --zone="$ZONE" \
@@ -52,70 +52,95 @@ jobs:
               --tags=http-server,https-server \
               --boot-disk-size=10GB \
               --metadata=startup-script='#!/bin/bash
-          set -e
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update -y
-          apt-get install -y python3 python3-pip python3-venv git
-          mkdir -p /opt/app
-          DEFAULT_USER=$(getent passwd 1000 | cut -d: -f1)
-          if [ -z "$DEFAULT_USER" ]; then
-            DEFAULT_USER=ubuntu
-          fi
-          chown -R $DEFAULT_USER:$DEFAULT_USER /opt/app
-          echo "VM setup complete"
-          '
-            echo "VM created. Waiting 90 seconds..."
+            set -e
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -y
+            apt-get install -y python3 python3-pip python3-venv git
+            mkdir -p /opt/app
+            DEFAULT_USER=$(getent passwd 1000 | cut -d: -f1)
+            if [ -z "$DEFAULT_USER" ]; then
+              DEFAULT_USER="ubuntu"
+            fi
+            chown -R $DEFAULT_USER:$DEFAULT_USER /opt/app
+            echo "VM setup complete"
+            '
+            
+            echo "VM $VM_NAME created successfully"
+            echo "Waiting 90 seconds for VM initialization..."
             sleep 90
           else
-            echo "VM already exists"
+            echo "VM $VM_NAME already exists. Skipping creation."
           fi
 
-      - name: Ensure python3-venv is installed
+      - name: Setup application directory permissions
         run: |
-          echo "Installing required packages..."
-          gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --command="sudo apt-get update -y && sudo apt-get install -y python3-venv python3-pip git"
+          echo "Setting up /opt/app permissions..."
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --command='sudo mkdir -p /opt/app && sudo chown -R $USER:$USER /opt/app && echo "Permissions set for $USER"'
 
-      - name: Setup directory permissions
+      - name: Deploy application to VM
         run: |
-          echo "Setting up permissions..."
-          gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --command="sudo mkdir -p /opt/app && sudo chown -R \$USER:\$USER /opt/app"
+          echo "Deploying application to VM: $VM_NAME"
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --command='
+            set -e
+            
+            echo "Current directory: $(pwd)"
+            echo "Checking /opt/app..."
+            ls -la /opt/app/ || echo "Directory does not exist or is empty"
+            
+            cd /opt/app
+            
+            if [ ! -d ".git" ]; then
+              echo "Cloning repository..."
+              git clone '"$REPO_URL"' .
+            else
+              echo "Pulling latest code..."
+              git pull origin feature || git pull
+            fi
+            
+            echo "Checking for virtual environment..."
+           if [ ! -f "venv/bin/activate" ]; then
+           echo "Virtual environment missing or broken. Recreating..."
+           rm -rf venv
+           python3 -m venv venv
+           echo "✅ Virtual environment created successfully"
+           else
+           echo "✅ Virtual environment already exists and valid"
+           fi
+            
+            echo "Contents of /opt/app:"
+            ls -la /opt/app/
+            
+            echo "Activating virtual environment..."
+            source /opt/app/venv/bin/activate
+            
+            echo "Installing dependencies..."
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            
+            echo "Application deployed successfully"
+            '
 
-      - name: Deploy application
+      - name: Configure Gunicorn service on VM
         run: |
-          echo "Deploying application..."
-          gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --command="
-          set -e
-          cd /opt/app
-          if [ ! -d .git ]; then
-            echo 'Cloning repository...'
-            git clone $REPO_URL .
-          else
-            echo 'Pulling latest code...'
-            git pull origin main || git pull
-          fi
-          if [ ! -d venv ]; then
-            echo 'Creating virtual environment...'
-            python3 -m venv venv
-          fi
-          echo 'Activating venv and installing dependencies...'
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          echo 'Deployment complete'
-          "
-
-      - name: Configure Gunicorn service
-        run: |
-          echo "Configuring Gunicorn..."
-          gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --command="
-          sudo tee /etc/systemd/system/gunicorn.service > /dev/null <<EOF
+          echo "Configuring Gunicorn systemd service..."
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --command='
+            sudo bash -c "cat > /etc/systemd/system/gunicorn.service <<EOF
           [Unit]
           Description=Gunicorn Service for Test App
           After=network.target
 
           [Service]
-          User=\$USER
-          Group=\$USER
+          User=$USER
+          Group=$USER
           WorkingDirectory=/opt/app
           Environment=\"PATH=/opt/app/venv/bin\"
           ExecStart=/opt/app/venv/bin/gunicorn --bind 0.0.0.0:8000 --workers 2 app:app
@@ -124,48 +149,61 @@ jobs:
 
           [Install]
           WantedBy=multi-user.target
-          EOF
-          sudo systemctl daemon-reload
-          sudo systemctl enable gunicorn.service
-          sudo systemctl restart gunicorn.service
-          sleep 5
-          if sudo systemctl is-active --quiet gunicorn.service; then
-            echo 'Gunicorn is running'
-            sudo systemctl status gunicorn.service --no-pager
-          else
-            echo 'Gunicorn failed to start'
-            sudo journalctl -u gunicorn.service -n 30 --no-pager
-            exit 1
-          fi
-          "
+          EOF"
+            sudo systemctl daemon-reload
+            sudo systemctl enable gunicorn.service
+            sudo systemctl restart gunicorn.service
+            sleep 5
+            if sudo systemctl is-active --quiet gunicorn.service; then
+              echo "Gunicorn service is running"
+              sudo systemctl status gunicorn.service --no-pager -l
+            else
+              echo "Gunicorn service failed to start"
+              sudo journalctl -u gunicorn.service -n 30 --no-pager
+              exit 1
+            fi
+            '
 
       - name: Verify deployment
         run: |
           echo "Verifying deployment..."
-          gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --command="
-          if sudo ss -tlnp | grep -q ':8000'; then
-            echo 'Port 8000 is listening'
-          else
-            echo 'Port 8000 not listening'
-            exit 1
-          fi
-          sleep 3
-          if curl -f http://localhost:8000 >/dev/null 2>&1; then
-            echo 'Application responding'
-          else
-            echo 'Application not responding'
-          fi
-          "
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --command='
+            if sudo ss -tlnp | grep -q ":8000"; then
+              echo "Application is listening on port 8000"
+            else
+              echo "Application is not listening on port 8000"
+              sudo journalctl -u gunicorn.service -n 20 --no-pager
+              exit 1
+            fi
+            sleep 3
+            if curl -f http://localhost:8000 >/dev/null 2>&1; then
+              echo "Application is responding to requests"
+              curl http://localhost:8000
+            else
+              echo "Application is not responding correctly"
+              sudo journalctl -u gunicorn.service -n 20 --no-pager
+            fi
+            '
 
-      - name: Get external IP
+      - name: Get VM external IP
         run: |
-          EXTERNAL_IP=$(gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
-          echo "======================================"
+          EXTERNAL_IP=$(gcloud compute instances describe "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
+          echo "=========================================="
           echo "Deployment Complete!"
-          echo "URL: http://$EXTERNAL_IP:8000"
-          echo "======================================"
+          echo "Application URL: http://$EXTERNAL_IP:8000"
+          echo "=========================================="
 
-      - name: Check VM status
+      - name: Confirm VM is running
         run: |
-          STATUS=$(gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --format="value(status)")
+          echo "Final VM status check..."
+          STATUS=$(gcloud compute instances describe "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --format="value(status)")
           echo "VM Status: $STATUS"
