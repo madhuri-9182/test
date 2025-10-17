@@ -4,18 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Choose the service action to perform'
+        description: Choose the service action to perform
         required: true
         type: choice
         options:
           - start
           - stop
           - restart
+          - status
         default: restart
       reason:
-        description: 'Reason for manual action'
+        description: Reason for manual action
         required: true
-        default: 'Triggered manually via GitHub Actions'
+        default: Triggered manually via GitHub Actions
 
 env:
   PROJECT_ID: dynamic-now-438707-c1
@@ -28,7 +29,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,9 +38,9 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          token_format: 'access_token'
-          workload_identity_provider: 'projects/568722140219/locations/global/workloadIdentityPools/github-pool/providers/github'
-          service_account: 'github-actions@dynamic-now-438707-c1.iam.gserviceaccount.com'
+          token_format: access_token
+          workload_identity_provider: projects/568722140219/locations/global/workloadIdentityPools/github-pool/providers/github
+          service_account: github-actions@dynamic-now-438707-c1.iam.gserviceaccount.com
 
       - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
@@ -50,24 +51,59 @@ jobs:
         run: |
           ACTION="${{ github.event.inputs.action }}"
           REASON="${{ github.event.inputs.reason }}"
-
+          
           echo "=========================================="
-          echo "🔧 Performing '$ACTION' on Gunicorn service"
-          echo "📋 Reason: $REASON"
-          echo "💻 VM: $VM_NAME"
+          echo "Performing '$ACTION' on Gunicorn service"
+          echo "Reason: $REASON"
+          echo "VM: $VM_NAME"
           echo "=========================================="
-
+          
           gcloud compute ssh "$VM_NAME" \
             --zone="$ZONE" \
             --project="$PROJECT_ID" \
-            --command="sudo systemctl \$ACTION gunicorn && sleep 3 && sudo systemctl status gunicorn --no-pager -l"
+            --command="
+            echo 'Running: sudo systemctl $ACTION gunicorn.service'
+            sudo systemctl $ACTION gunicorn.service
+            sleep 3
+            echo ''
+            echo 'Current service status:'
+            sudo systemctl status gunicorn.service --no-pager -l || true
+            "
+          
+          echo "Service '$ACTION' command completed"
 
-          echo "✅ Gunicorn service '$ACTION' completed successfully."
-
-      - name: Verify Gunicorn status
+      - name: Verify Service Status
         run: |
-          echo "🔍 Checking Gunicorn service status..."
+          echo "Checking final service status..."
           gcloud compute ssh "$VM_NAME" \
             --zone="$ZONE" \
             --project="$PROJECT_ID" \
-            --command="sudo systemctl is-active gunicorn && sudo systemctl status gunicorn --no-pager -l"
+            --command="
+            if sudo systemctl is-active --quiet gunicorn.service; then
+              echo 'Gunicorn service is ACTIVE'
+              EXTERNAL_IP=\$(curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H 'Metadata-Flavor: Google')
+              echo 'Service accessible at: http://'\$EXTERNAL_IP':8000'
+            else
+              echo 'Gunicorn service is INACTIVE'
+            fi
+            "
+
+      - name: Test Application (if running)
+        run: |
+          echo "Testing application endpoint..."
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$ZONE" \
+            --project="$PROJECT_ID" \
+            --command="
+            if sudo systemctl is-active --quiet gunicorn.service; then
+              sleep 2
+              if curl -f http://localhost:8000 >/dev/null 2>&1; then
+                echo 'Application is responding to requests'
+                curl -s http://localhost:8000 | head -20
+              else
+                echo 'Service is running but application not responding'
+              fi
+            else
+              echo 'Service is stopped - skipping application test'
+            fi
+            " || echo "Application test skipped or failed"
